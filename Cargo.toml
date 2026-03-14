@@ -1,0 +1,86 @@
+[package]
+name = "rusty_pixel_dungeon"
+version = "0.1.0"
+edition = "2024"
+
+# Unfortunately, cargo does not currently support overriding workspace lints
+# inside a particular crate. See https://github.com/rust-lang/cargo/issues/13157
+#
+# We require an override for cases like `std_instead_of_core`, which are intended
+# for the library contributors and not for how users should consume Bevy.
+# To ensure examples aren't subject to these lints, below is a duplication of the
+# workspace lints, with the "overrides" applied.
+#
+# [lints]
+# workspace = true
+
+[lints.clippy]
+doc_markdown = "warn"
+manual_let_else = "warn"
+match_same_arms = "warn"
+redundant_closure_for_method_calls = "warn"
+redundant_else = "warn"
+semicolon_if_nothing_returned = "warn"
+type_complexity = "allow"
+undocumented_unsafe_blocks = "warn"
+unwrap_or_default = "warn"
+needless_lifetimes = "allow"
+too_many_arguments = "allow"
+nonstandard_macro_braces = "warn"
+
+ptr_as_ptr = "warn"
+ptr_cast_constness = "warn"
+ref_as_ptr = "warn"
+
+too_long_first_doc_paragraph = "allow"
+
+std_instead_of_core = "allow"
+std_instead_of_alloc = "allow"
+alloc_instead_of_core = "allow"
+
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+
+[lints.rust]
+missing_docs = "allow"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(docsrs_dep)'] }
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "warn"
+unused_qualifications = "warn"
+
+# Here is a configuration for the most aggressive optimizations possible
+# Read this when trying to optimise WASM build: https://bevy-cheatbook.github.io/platforms/wasm/size-opt.html
+[profile.release]
+lto = true
+opt-level = 3
+codegen-units = 1
+incremental = false
+debug = false
+
+# If your own code does CPU-intensive work, you might want to also enable some optimization for it.
+# Enable only a small amount of optimization in debug mode
+[profile.dev]
+opt-level = 1
+
+# Enable a large amount of optimization in the dev profile for dependencies.
+[profile.dev.package."*"]
+opt-level = 3
+
+[dependencies]
+bevy = { version = "0.18.1", default-features = false }
+solarborn = { path = "/home/shishanyue/Project/rust/solarborn", features = [
+    "2d_api",
+    "dev_tools",
+    "asset_loader",
+    "dynamic_assets",
+    "common_json",
+] }
+lazy_static = "1.5.0"
+java-properties = "2.0.0"
+
+
+bevy_asset_loader = { version = "0.25.0", default-features = false }
+
+thiserror = "2.0"
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
