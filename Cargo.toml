@@ -13,6 +13,8 @@ edition = "2024"
 #
 # [lints]
 # workspace = true
+[workspace]
+members = ["crates/*"]
 
 [lints.clippy]
 doc_markdown = "warn"
@@ -67,6 +69,8 @@ opt-level = 1
 opt-level = 3
 
 [dependencies]
+macros = { path = "crates/macros" }
+
 bevy = { version = "0.18.1", default-features = false }
 solarborn = { path = "/home/shishanyue/Project/rust/solarborn", features = [
     "2d_api",
@@ -74,6 +78,7 @@ solarborn = { path = "/home/shishanyue/Project/rust/solarborn", features = [
     "asset_loader",
     "dynamic_assets",
     "common_json",
+    "tilemap",
 ] }
 lazy_static = "1.5.0"
 java-properties = "2.0.0"
@@ -83,4 +88,10 @@ bevy_asset_loader = { version = "0.25.0", default-features = false }
 
 thiserror = "2.0"
 anyhow = "1.0"
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", default-features = false }
+bitflags = "2.11.0"
+
+rand = "0.10.0"
+bevy_ecs_tilemap = { version = "0.18.1", default-features = false }
+num_enum = "0.7.6"
+strum = { version = "0.28.0", features = ["derive"] }

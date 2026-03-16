@@ -1,4 +1,8 @@
-use std::{collections::HashMap, io::{BufReader, Cursor}, sync::Arc};
+use std::{
+    collections::HashMap,
+    io::{BufReader, Cursor},
+    sync::Arc,
+};
 
 use bevy::{
     asset::{AssetLoader, LoadContext, io::Reader},
@@ -48,7 +52,7 @@ impl AssetLoader for PropertiesAssetLoader {
             properties: Arc::new(properties),
         })
     }
-    
+
     fn extensions(&self) -> &[&str] {
         &["properties"]
     }

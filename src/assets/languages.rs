@@ -5,7 +5,7 @@ use bevy_asset_loader::prelude::*;
 use serde::{Deserialize, Serialize};
 use solarborn::bevy_common_assets::json::JsonAssetPlugin;
 
-use crate::states::SettingStates;
+use crate::states::LoadingStates;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Deserialize, Serialize)]
 pub enum LanguageType {
@@ -14,7 +14,7 @@ pub enum LanguageType {
     Korean,
     Russian,
     Spanish,
-    Portugues,
+    Portuguese,
     French,
     German,
     ChiTrad,
@@ -22,8 +22,8 @@ pub enum LanguageType {
     Polish,
     Italian,
     Turkish,
-    Vietnames,
-    Ukranian,
+    Vietnamese,
+    Ukrainian,
     Indonesia,
     Czech,
     Dutch,
@@ -31,7 +31,7 @@ pub enum LanguageType {
     Hungarian,
     Finnish,
     Greek,
-    Belarusia,
+    Belarusian,
     Catalan,
     Galicia,
     Basque,
@@ -44,7 +44,7 @@ pub enum LanguageStatus {
     //unfinished, ~80-99% translated
     Unfinish,
     //unreviewed, but 100% translated
-    Unreview,
+    Unreviewed,
     //complete, 100% reviewed
     Complete,
 }
@@ -113,11 +113,11 @@ impl Plugin for LanguagePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(JsonAssetPlugin::<LanguagesAssets>::new(&["json"]))
             .add_loading_state(
-                LoadingState::new(SettingStates::LanguagesLoading)
-                    .continue_to_state(SettingStates::PropertiesLoading)
+                LoadingState::new(LoadingStates::LanguagesLoading)
+                    .continue_to_state(LoadingStates::PropertiesLoading)
                     .load_collection::<LanguageCollection>(),
             )
-            .add_systems(OnEnter(SettingStates::PropertiesLoading), setup);
+            .add_systems(OnEnter(LoadingStates::PropertiesLoading), setup);
     }
 }
 
@@ -136,8 +136,6 @@ fn setup(
         .into_iter()
         .map(|lang| (lang.language_type, Arc::new(lang.clone())))
         .collect();
-
-    println!("Loaded languages: {:?}", language_map);
 
     commands.insert_resource(LanguageServer::new(language_map));
 }
