@@ -98,7 +98,7 @@ Contributions are what make the open-source community such an amazing place to l
 
 ## 📝 License
 
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU Affero General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 
 *Note: This project is a derivative work based on [Shattered Pixel Dungeon](https://github.com/00-Evan/shattered-pixel-dungeon) by Evan Debenham (originally based on Watabou's Pixel Dungeon).*
 
