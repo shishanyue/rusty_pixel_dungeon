@@ -5,7 +5,7 @@ use bevy_asset_loader::prelude::*;
 use serde::{Deserialize, Serialize};
 use solarborn::bevy_common_assets::json::JsonAssetPlugin;
 
-use crate::states::LoadingStates;
+use crate::states::LoadingAssetStates;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Deserialize, Serialize)]
 pub enum LanguageType {
@@ -59,26 +59,6 @@ pub struct Language {
     pub translators: Option<Vec<String>>,
 }
 
-impl Language {
-    pub fn new(
-        language_type: LanguageType,
-        name: String,
-        code: String,
-        status: LanguageStatus,
-        reviewers: Option<Vec<String>>,
-        translators: Option<Vec<String>>,
-    ) -> Self {
-        Self {
-            language_type,
-            name,
-            code,
-            status,
-            reviewers,
-            translators,
-        }
-    }
-}
-
 #[derive(Debug, Asset, TypePath, Deserialize, Serialize)]
 pub struct LanguagesAssets(pub Vec<Language>);
 
@@ -113,11 +93,10 @@ impl Plugin for LanguagePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(JsonAssetPlugin::<LanguagesAssets>::new(&["json"]))
             .add_loading_state(
-                LoadingState::new(LoadingStates::LanguagesLoading)
-                    .continue_to_state(LoadingStates::PropertiesLoading)
+                LoadingState::new(LoadingAssetStates::LanguagesLoading)
+                    .continue_to_state(LoadingAssetStates::EffectsLoading)
                     .load_collection::<LanguageCollection>(),
-            )
-            .add_systems(OnEnter(LoadingStates::PropertiesLoading), setup);
+            );
     }
 }
 

@@ -1,6 +1,8 @@
 use bitflags::bitflags;
 use lazy_static::lazy_static;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+pub enum Terrain {
 pub const CHASM: u8 = 0;
 pub const EMPTY: u8 = 1;
 pub const GRASS: u8 = 2;
@@ -43,6 +45,7 @@ pub const REGION_DECO_ALT: u8 = 34;//alt visual for region deco, sometimes SP, s
 pub const MINE_CRYSTAL: u8 = 35;
 pub const MINE_BOULDER: u8 = 36;
 pub const WATER: u8 = 29;
+}
 
 lazy_static! {
     pub static ref FLAGS: [TerrainFlags; 256] = {

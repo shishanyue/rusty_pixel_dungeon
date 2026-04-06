@@ -1,3 +1,5 @@
+use std::any::Any;
+
 use bevy::prelude::*;
 
 pub mod empty_room;
@@ -171,3 +173,9 @@ impl Plugin for RoomPlugin {
         app.add_systems(Startup, |mut aa: Query<(Entity, &mut RoomCore)>| {});
     }
 }
+
+pub trait DynamicRoomImpl: Any {
+    fn as_any(&self) -> &dyn Any;
+}
+
+pub struct DynamicRoom(pub Box<dyn DynamicRoomImpl>);

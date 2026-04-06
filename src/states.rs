@@ -1,18 +1,24 @@
 use bevy::prelude::*;
 
 #[derive(Clone, Eq, PartialEq, Debug, Hash, Default, States)]
-pub enum LoadingStates {
+pub enum LoadingAssetStates {
     #[default]
+    MessagesLoading,
     LanguagesLoading,
-    PropertiesLoading,
-    PropertiesProcessing,
-    MainMenu,
+    EffectsLoading,
+    EnvironmentLoading,
+    InterfacesLoading,
+    MusicLoading,
+    SoundsLoading,
+    SplashesLoading,
+    SpritesLoading,
+    Loaded,
 }
 
 pub struct StatesPlugin;
 
 impl Plugin for StatesPlugin {
     fn build(&self, app: &mut App) {
-        app.init_state::<LoadingStates>();
+        app.init_state::<LoadingAssetStates>();
     }
 }

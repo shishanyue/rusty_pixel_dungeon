@@ -79,6 +79,7 @@ solarborn = { path = "/home/shishanyue/Project/rust/solarborn", features = [
     "dynamic_assets",
     "common_json",
     "tilemap",
+    "kira_audio",
 ] }
 lazy_static = "1.5.0"
 java-properties = "2.0.0"

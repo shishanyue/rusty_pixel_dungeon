@@ -1,8 +1,11 @@
 pub mod room_helper;
 
 pub trait PropertyPath {
+    fn get_property_path(&self) -> &'static str;
+}
+
+pub trait StaticPropertyPath {
     fn get_property_path() -> &'static str;
-    fn get_property_key(&self) -> String;
 }
 
 pub trait LevelPropertyPath {

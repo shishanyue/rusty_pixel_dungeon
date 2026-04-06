@@ -1,6 +1,5 @@
-use bevy::prelude::*;
+use bevy::{platform::collections::HashMap, prelude::*};
 use num_enum::IntoPrimitive;
-use std::collections::HashMap;
 use strum::{AsRefStr, EnumIter, IntoEnumIterator};
 
 use crate::setting::Settings;
@@ -24,9 +23,21 @@ impl Dungeon {
                 1..=4 => {}
                 5 => {}
                 6..=9 => {}
+                10 => {}
+                11..=14 => {}
+                15 => {}
+                16..=19 => {}
+                20 => {}
+                21..=24 => {}
+                25 => {}
+                26 => {}
                 _ => {}
             },
-            1 => {}
+            1 => match self.depth {
+                11..=14 => {}
+                16..=19 => {}
+                _ => {}
+            },
 
             _ => {}
         }
@@ -99,7 +110,6 @@ impl Dungeon {
         self.challenges = settings.challenges;
         self.depth = 1;
         self.branch = 0;
-        
     }
 }
 
