@@ -1,17 +1,21 @@
 use bevy::prelude::*;
-use solarborn::SolarBornPlugins;
 
 use crate::{
-    assets::AssetsPlugin, dungeon::DungeonPlugin, setting::SettingPlugin, states::StatesPlugin, test::TestPlugin,
+    actors::ActorsPlugin, assets::AssetsPlugin, dungeon::DungeonPlugin, scenes::ScenesPlugin,
+    setting::SettingPlugin, states::StatesPlugin,
 };
 
+pub mod actors;
 pub mod assets;
+pub mod audio;
 pub mod dungeon;
-pub mod global;
+pub mod items;
 pub mod levels;
+pub mod render;
+pub mod scenes;
 pub mod setting;
+pub mod sprites;
 pub mod states;
-pub mod test;
 pub mod utils;
 
 fn main() {
@@ -20,20 +24,22 @@ fn main() {
             DefaultPlugins
                 .set(WindowPlugin {
                     primary_window: Some(Window {
-                        title: String::from(
-                            "Rusty Pixel Dungeon - A Roguelike Game Made with Rust and Bevy",
-                        ),
-                        ..Default::default()
+                        title: String::from("Rusty Pixel Dungeon"),
+                        ..default()
                     }),
                     ..default()
                 })
                 .set(ImagePlugin::default_nearest()),
         )
-        .add_plugins(SolarBornPlugins)
-        .add_plugins(DungeonPlugin)
-        .add_plugins(AssetsPlugin)
-        .add_plugins(StatesPlugin)
-        .add_plugins(SettingPlugin)
-        .add_plugins(TestPlugin)
+        .add_plugins((
+            StatesPlugin,
+            SettingPlugin,
+            AssetsPlugin,
+            DungeonPlugin,
+            ActorsPlugin,
+            ScenesPlugin,
+            render::RenderLevelPlugin,
+            audio::GameMusicPlugin,
+        ))
         .run();
 }

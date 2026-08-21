@@ -1,11 +1,18 @@
-use std::{collections::HashMap, sync::Arc};
+//! 语言元数据（`assets/languages/languages.json`）。
+//! 消息文本的加载与回退链见 `docs/plans/12-i18n-messages.md`（i18n 域）。
 
-use bevy::prelude::*;
+use std::sync::Arc;
+
+use bevy::{
+    asset::{AssetLoader, LoadContext, io::Reader},
+    platform::collections::HashMap,
+    prelude::*,
+};
 use bevy_asset_loader::prelude::*;
 use serde::{Deserialize, Serialize};
-use solarborn::bevy_common_assets::json::JsonAssetPlugin;
+use thiserror::Error;
 
-use crate::states::LoadingAssetStates;
+use crate::states::AppState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Deserialize, Serialize)]
 pub enum LanguageType {
@@ -38,14 +45,14 @@ pub enum LanguageType {
     Esperanto,
 }
 
+/// 翻译完成度（低于 80% 的语言不收录）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Deserialize, Serialize)]
-//below 80% translated languages are not added or removed
 pub enum LanguageStatus {
-    //unfinished, ~80-99% translated
+    /// 约 80-99% 翻译完成
     Unfinish,
-    //unreviewed, but 100% translated
+    /// 100% 翻译但未审校
     Unreviewed,
-    //complete, 100% reviewed
+    /// 100% 审校完成
     Complete,
 }
 
@@ -62,28 +69,85 @@ pub struct Language {
 #[derive(Debug, Asset, TypePath, Deserialize, Serialize)]
 pub struct LanguagesAssets(pub Vec<Language>);
 
+#[derive(Default, TypePath)]
+pub struct LanguagesAssetLoader;
+
+#[derive(Debug, Error)]
+pub enum LanguagesLoaderError {
+    #[error("无法读取文件: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("无法解析 languages.json: {0}")]
+    Parse(#[from] serde_json::Error),
+}
+
+impl AssetLoader for LanguagesAssetLoader {
+    type Asset = LanguagesAssets;
+    type Settings = ();
+    type Error = LanguagesLoaderError;
+
+    async fn load(
+        &self,
+        reader: &mut dyn Reader,
+        _settings: &Self::Settings,
+        _load_context: &mut LoadContext<'_>,
+    ) -> Result<Self::Asset, Self::Error> {
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).await?;
+        Ok(serde_json::from_slice(&bytes)?)
+    }
+
+    fn extensions(&self) -> &[&str] {
+        &["json"]
+    }
+}
+
 #[derive(Debug, AssetCollection, Resource)]
 pub struct LanguageCollection {
     #[asset(path = "languages/languages.json")]
     pub languages: Handle<LanguagesAssets>,
 }
 
+/// 语言类型 → 元数据。装载完成后由 `FromWorld` 构建（`init_resource` 收尾步骤）。
 #[derive(Debug, Resource)]
 pub struct LanguageServer {
-    pub languages: HashMap<LanguageType, Arc<Language>>,
+    languages: HashMap<LanguageType, Arc<Language>>,
 }
 
 impl LanguageServer {
-    pub fn new(languages: HashMap<LanguageType, Arc<Language>>) -> Self {
-        Self { languages }
+    /// 取语言元数据；未收录语言回退英语
+    pub fn get(&self, lang: LanguageType) -> Arc<Language> {
+        self.languages
+            .get(&lang)
+            .or_else(|| self.languages.get(&LanguageType::English))
+            .expect("languages.json 必须包含 English")
+            .clone()
     }
 
-    pub fn match_code(&self, lang_type: LanguageType) -> Arc<Language> {
-        return self
-            .languages
-            .get(&lang_type)
-            .unwrap_or(self.languages.get(&LanguageType::English).unwrap())
-            .clone();
+    /// 语言代码（`languages.json` 的 `code` 字段，如 `"zh"`）→ 语言元数据；
+    /// 未知代码返回 `None`。`Settings.local_code` → [`LanguageType`] 的解析入口。
+    pub fn get_by_code(&self, code: &str) -> Option<Arc<Language>> {
+        self.languages
+            .values()
+            .find(|lang| lang.code == code)
+            .cloned()
+    }
+}
+
+impl FromWorld for LanguageServer {
+    fn from_world(world: &mut World) -> Self {
+        let collection = world.resource::<LanguageCollection>();
+        let assets = world.resource::<Assets<LanguagesAssets>>();
+        let languages = assets
+            .get(&collection.languages)
+            .expect("LanguageCollection 装载完成后资产必然存在");
+
+        Self {
+            languages: languages
+                .0
+                .iter()
+                .map(|lang| (lang.language_type, Arc::new(lang.clone())))
+                .collect(),
+        }
     }
 }
 
@@ -91,30 +155,62 @@ pub struct LanguagePlugin;
 
 impl Plugin for LanguagePlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(JsonAssetPlugin::<LanguagesAssets>::new(&["json"]))
-            .add_loading_state(
-                LoadingState::new(LoadingAssetStates::LanguagesLoading)
-                    .continue_to_state(LoadingAssetStates::EffectsLoading)
-                    .load_collection::<LanguageCollection>(),
+        app.init_asset::<LanguagesAssets>()
+            .init_asset_loader::<LanguagesAssetLoader>()
+            .configure_loading_state(
+                LoadingStateConfig::new(AppState::Loading)
+                    .load_collection::<LanguageCollection>()
+                    .finally_init_resource::<LanguageServer>(),
             );
     }
 }
 
-fn setup(
-    mut commands: Commands,
-    language_collection: Res<LanguageCollection>,
-    languages_assets: Res<Assets<LanguagesAssets>>,
-) {
-    let languages = languages_assets
-        .get(&language_collection.languages)
-        .unwrap();
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
 
-    let language_map = languages
-        .0
-        .iter()
-        .into_iter()
-        .map(|lang| (lang.language_type, Arc::new(lang.clone())))
-        .collect();
+    use super::*;
 
-    commands.insert_resource(LanguageServer::new(language_map));
+    /// 用真实 languages.json 构建（不经 Bevy App，FromWorld 的纯数据部分）
+    fn server_from_real_json() -> LanguageServer {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/languages/languages.json");
+        let assets: LanguagesAssets =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        LanguageServer {
+            languages: assets
+                .0
+                .iter()
+                .map(|lang| (lang.language_type, Arc::new(lang.clone())))
+                .collect(),
+        }
+    }
+
+    /// code → 枚举映射（`Settings.local_code` 解析用）
+    #[test]
+    fn code_maps_to_language_type() {
+        let server = server_from_real_json();
+        assert_eq!(
+            server.get_by_code("zh").unwrap().language_type,
+            LanguageType::ChiSmpl
+        );
+        assert_eq!(
+            server.get_by_code("zh-hant").unwrap().language_type,
+            LanguageType::ChiTrad
+        );
+        assert_eq!(
+            server.get_by_code("en").unwrap().language_type,
+            LanguageType::English
+        );
+        assert!(server.get_by_code("xx").is_none());
+    }
+
+    /// 未收录语言（如 <80% 翻译的 Finnish）回退英语元数据
+    #[test]
+    fn unlisted_language_falls_back_to_english() {
+        let server = server_from_real_json();
+        assert_eq!(
+            server.get(LanguageType::Finnish).language_type,
+            LanguageType::English
+        );
+    }
 }

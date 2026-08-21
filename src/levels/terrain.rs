@@ -1,126 +1,192 @@
+//! 地形定义，对照 SPD `levels/Terrain.java`。
+//!
+//! 判别值必须与 Java 原版逐一相同（存档兼容与对拍的基础），
+//! flags 映射照抄 Terrain.java 静态初始化块（v3.3.8, L83-L125）。
+
 use bitflags::bitflags;
-use lazy_static::lazy_static;
+use num_enum::{IntoPrimitive, TryFromPrimitive};
+use strum::EnumIter;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
-pub enum Terrain {
-pub const CHASM: u8 = 0;
-pub const EMPTY: u8 = 1;
-pub const GRASS: u8 = 2;
-pub const EMPTY_WELL: u8 = 3;
-pub const WALL: u8 = 4;
-pub const DOOR: u8 = 5;
-pub const OPEN_DOOR: u8 = 6;
-pub const ENTRANCE: u8 = 7;
-pub const ENTRANCE_SP: u8 = 37;
-pub const EXIT: u8 = 8;
-pub const EMBERS: u8 = 9;
-pub const LOCKED_DOOR: u8 = 10;
-//a door that was locked by the skeleton key
-pub const HERO_LKD_DR: u8 = 38;
-pub const CRYSTAL_DOOR: u8 = 31;
-pub const PEDESTAL: u8 = 11;
-pub const WALL_DECO: u8 = 12;
-pub const BARRICADE: u8 = 13;
-pub const EMPTY_SP: u8 = 14;
-pub const HIGH_GRASS: u8 = 15;
-pub const FURROWED_GRASS: u8 = 30;
-pub const SECRET_DOOR: u8 = 16;
-pub const SECRET_TRAP: u8 = 17;
-pub const TRAP: u8 = 18;
-pub const INACTIVE_TRAP: u8 = 19;
-pub const EMPTY_DECO: u8 = 20;
-pub const LOCKED_EXIT: u8 = 21;
-pub const UNLOCKED_EXIT: u8 = 22;
-pub const WELL: u8 = 24;
-pub const BOOKSHELF: u8 = 27;
-pub const ALCHEMY: u8 = 28;
-pub const CUSTOM_DECO_EMPTY: u8 = 32;//regular empty tile that can't be overridden, used for custom visuals mainly
-//solid environment decorations
-pub const CUSTOM_DECO: u8 = 23;//invisible decoration that will also be a custom visual, re-uses the old terrain ID for signs
-pub const STATUE: u8 = 25;
-pub const STATUE_SP: u8 = 26;
-//These decorations are environment-specific
-pub const REGION_DECO: u8 = 33;
-pub const REGION_DECO_ALT: u8 = 34;//alt visual for region deco, sometimes SP, sometimes other
-pub const MINE_CRYSTAL: u8 = 35;
-pub const MINE_BOULDER: u8 = 36;
-pub const WATER: u8 = 29;
-}
-
-lazy_static! {
-    pub static ref FLAGS: [TerrainFlags; 256] = {
-        let mut flags = [TerrainFlags::empty(); 256];
-
-        flags[CHASM as usize] = TerrainFlags::AVOID | TerrainFlags::PIT;
-        flags[EMPTY as usize] = TerrainFlags::PASSABLE;
-        flags[GRASS as usize] = TerrainFlags::PASSABLE | TerrainFlags::FLAMABLE;
-        flags[EMPTY_WELL as usize] = TerrainFlags::PASSABLE;
-        flags[WATER as usize] = TerrainFlags::PASSABLE | TerrainFlags::LIQUID;
-        flags[WALL as usize] = TerrainFlags::LOS_BLOCKING | TerrainFlags::SOLID;
-        flags[DOOR as usize] = TerrainFlags::PASSABLE
-            | TerrainFlags::LOS_BLOCKING
-            | TerrainFlags::FLAMABLE
-            | TerrainFlags::SOLID;
-        flags[OPEN_DOOR as usize] = TerrainFlags::PASSABLE | TerrainFlags::FLAMABLE;
-        flags[ENTRANCE as usize] = TerrainFlags::PASSABLE;
-        flags[EXIT as usize] = TerrainFlags::PASSABLE;
-        flags[EMBERS as usize] = TerrainFlags::PASSABLE;
-        flags[LOCKED_DOOR as usize] = TerrainFlags::LOS_BLOCKING | TerrainFlags::SOLID;
-        flags[CRYSTAL_DOOR as usize] = TerrainFlags::SOLID;
-        flags[PEDESTAL as usize] = TerrainFlags::PASSABLE;
-        flags[BARRICADE as usize] = TerrainFlags::FLAMABLE | TerrainFlags::SOLID | TerrainFlags::LOS_BLOCKING;
-        flags[HIGH_GRASS as usize] =
-            TerrainFlags::PASSABLE | TerrainFlags::LOS_BLOCKING | TerrainFlags::FLAMABLE;
-        flags[TRAP as usize] = TerrainFlags::AVOID;
-        flags[LOCKED_EXIT as usize] = TerrainFlags::SOLID;
-        flags[UNLOCKED_EXIT as usize] = TerrainFlags::PASSABLE;
-        flags[WELL as usize] = TerrainFlags::AVOID;
-        flags[ALCHEMY as usize] = TerrainFlags::SOLID;
-        flags[CUSTOM_DECO as usize] = TerrainFlags::SOLID;
-        flags[STATUE as usize] = TerrainFlags::SOLID;
-        flags[MINE_CRYSTAL as usize] = TerrainFlags::SOLID;
-        flags[MINE_BOULDER as usize] = TerrainFlags::SOLID;
-        
-        flags[ENTRANCE_SP as usize] = flags[ENTRANCE as usize];
-        flags[HERO_LKD_DR as usize] = flags[LOCKED_DOOR as usize];
-        flags[WALL_DECO as usize] = flags[WALL as usize];
-        flags[EMPTY_SP as usize] = flags[EMPTY as usize];
-        flags[FURROWED_GRASS as usize] = flags[HIGH_GRASS as usize];
-        // 包含 SECRET 标志的特殊地形
-        flags[SECRET_DOOR as usize] = flags[WALL as usize] | TerrainFlags::SECRET;
-        flags[SECRET_TRAP as usize] = flags[EMPTY as usize] | TerrainFlags::SECRET;
-        flags[INACTIVE_TRAP as usize] = flags[EMPTY as usize];
-        flags[EMPTY_DECO as usize] = flags[EMPTY as usize];
-        flags[BOOKSHELF as usize] = flags[BARRICADE as usize];
-        flags[CUSTOM_DECO_EMPTY as usize] = flags[EMPTY as usize];
-        flags[STATUE_SP as usize] = flags[STATUE as usize];
-        flags[REGION_DECO as usize] = flags[STATUE as usize];
-        flags[REGION_DECO_ALT as usize] = flags[STATUE_SP as usize];
-
-        flags
-    };
-}
-/// 发现隐藏地形（如密门、陷阱）
-/// 如果是隐藏地形，返回其真实形态，否则返回原地形
-pub fn discover(terr: u8) -> u8 {
-    match terr {
-        SECRET_DOOR => DOOR,
-        SECRET_TRAP => TRAP,
-        _ => terr,
+bitflags! {
+    /// 地形行为标志（FLAMABLE 沿用 SPD 原拼写，便于对照检索）
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    pub struct TerrainFlags: u8 {
+        const PASSABLE     = 1 << 0;
+        const LOS_BLOCKING = 1 << 1;
+        const FLAMABLE     = 1 << 2;
+        const SECRET       = 1 << 3;
+        const SOLID        = 1 << 4;
+        const AVOID        = 1 << 5;
+        const LIQUID       = 1 << 6;
+        const PIT          = 1 << 7;
     }
 }
 
-// --- 定义标志位 ---
-bitflags! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub struct TerrainFlags: u8 {
-        const PASSABLE      = 0b0000_0001;
-        const LOS_BLOCKING  = 0b0000_0010;
-        const FLAMABLE      = 0b0000_0100;
-        const SECRET        = 0b0000_1000;
-        const SOLID         = 0b0001_0000;
-        const AVOID         = 0b0010_0000;
-        const LIQUID        = 0b0100_0000;
-        const PIT           = 0b1000_0000;
+/// 地形类型。判别值 = SPD 的 int 常量（0..=38，23 与 31 等空位是历史原因，照抄）。
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, EnumIter, IntoPrimitive, TryFromPrimitive,
+)]
+#[repr(u8)]
+pub enum Terrain {
+    Chasm = 0,
+    Empty = 1,
+    Grass = 2,
+    EmptyWell = 3,
+    #[default]
+    Wall = 4,
+    Door = 5,
+    OpenDoor = 6,
+    Entrance = 7,
+    Exit = 8,
+    Embers = 9,
+    LockedDoor = 10,
+    Pedestal = 11,
+    WallDeco = 12,
+    Barricade = 13,
+    EmptySp = 14,
+    HighGrass = 15,
+    SecretDoor = 16,
+    SecretTrap = 17,
+    Trap = 18,
+    InactiveTrap = 19,
+    EmptyDeco = 20,
+    LockedExit = 21,
+    UnlockedExit = 22,
+    /// 不可见的实体装饰（复用旧版 SIGN 的 ID）
+    CustomDeco = 23,
+    Well = 24,
+    Statue = 25,
+    StatueSp = 26,
+    Bookshelf = 27,
+    Alchemy = 28,
+    Water = 29,
+    FurrowedGrass = 30,
+    CrystalDoor = 31,
+    /// 不可被覆盖的普通空地，主要用于自定义视觉
+    CustomDecoEmpty = 32,
+    RegionDeco = 33,
+    RegionDecoAlt = 34,
+    MineCrystal = 35,
+    MineBoulder = 36,
+    EntranceSp = 37,
+    /// 被骷髅钥匙锁上的门
+    HeroLockedDoor = 38,
+}
+
+impl Terrain {
+    /// 行为标志查表，映射照抄 SPD `Terrain.java` 静态块。
+    pub const fn flags(self) -> TerrainFlags {
+        use Terrain as T;
+        const P: TerrainFlags = TerrainFlags::PASSABLE;
+        const L: TerrainFlags = TerrainFlags::LOS_BLOCKING;
+        const F: TerrainFlags = TerrainFlags::FLAMABLE;
+        const SC: TerrainFlags = TerrainFlags::SECRET;
+        const S: TerrainFlags = TerrainFlags::SOLID;
+        const A: TerrainFlags = TerrainFlags::AVOID;
+
+        match self {
+            T::Chasm => TerrainFlags::AVOID.union(TerrainFlags::PIT),
+            T::Empty
+            | T::EmptyWell
+            | T::Entrance
+            | T::EntranceSp
+            | T::Exit
+            | T::Embers
+            | T::Pedestal
+            | T::InactiveTrap
+            | T::EmptyDeco
+            | T::EmptySp
+            | T::UnlockedExit
+            | T::CustomDecoEmpty => P,
+            T::Grass | T::OpenDoor => P.union(F),
+            T::Water => P.union(TerrainFlags::LIQUID),
+            T::Wall | T::WallDeco | T::LockedDoor | T::HeroLockedDoor => L.union(S),
+            T::Door => P.union(L).union(F).union(S),
+            T::CrystalDoor
+            | T::LockedExit
+            | T::Alchemy
+            | T::CustomDeco
+            | T::Statue
+            | T::StatueSp
+            | T::RegionDeco
+            | T::RegionDecoAlt
+            | T::MineCrystal
+            | T::MineBoulder => S,
+            T::Barricade | T::Bookshelf => F.union(S).union(L),
+            T::HighGrass | T::FurrowedGrass => P.union(L).union(F),
+            T::SecretDoor => L.union(S).union(SC),
+            T::SecretTrap => P.union(SC),
+            T::Trap | T::Well => A,
+        }
+    }
+
+    /// 发现隐藏地形：密门 → 门，暗陷阱 → 陷阱，其余原样返回。
+    pub const fn discover(self) -> Terrain {
+        match self {
+            Terrain::SecretDoor => Terrain::Door,
+            Terrain::SecretTrap => Terrain::Trap,
+            other => other,
+        }
+    }
+
+    pub const fn is_passable(self) -> bool {
+        self.flags().contains(TerrainFlags::PASSABLE)
+    }
+
+    pub const fn is_solid(self) -> bool {
+        self.flags().contains(TerrainFlags::SOLID)
+    }
+
+    pub const fn blocks_sight(self) -> bool {
+        self.flags().contains(TerrainFlags::LOS_BLOCKING)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use strum::IntoEnumIterator;
+
+    /// 判别值与 SPD int 常量往返一致
+    #[test]
+    fn primitive_roundtrip() {
+        for terrain in Terrain::iter() {
+            let raw: u8 = terrain.into();
+            assert_eq!(Terrain::try_from(raw).unwrap(), terrain);
+        }
+        assert_eq!(u8::from(Terrain::HeroLockedDoor), 38);
+        assert_eq!(u8::from(Terrain::Water), 29);
+        assert_eq!(u8::from(Terrain::CrystalDoor), 31);
+        // 空位判别值不可解析
+        assert!(Terrain::try_from(39u8).is_err());
+    }
+
+    /// flags 抽查，对照 Terrain.java L83-L125
+    #[test]
+    fn flags_match_spd() {
+        use TerrainFlags as F;
+        assert_eq!(Terrain::Chasm.flags(), F::AVOID | F::PIT);
+        assert_eq!(
+            Terrain::Door.flags(),
+            F::PASSABLE | F::LOS_BLOCKING | F::FLAMABLE | F::SOLID
+        );
+        assert_eq!(
+            Terrain::SecretDoor.flags(),
+            F::LOS_BLOCKING | F::SOLID | F::SECRET
+        );
+        assert_eq!(Terrain::SecretTrap.flags(), F::PASSABLE | F::SECRET);
+        assert_eq!(Terrain::Bookshelf.flags(), Terrain::Barricade.flags());
+        assert_eq!(Terrain::FurrowedGrass.flags(), Terrain::HighGrass.flags());
+        assert_eq!(Terrain::WallDeco.flags(), Terrain::Wall.flags());
+        assert_eq!(Terrain::Water.flags(), F::PASSABLE | F::LIQUID);
+        assert_eq!(Terrain::Well.flags(), F::AVOID);
+        assert_eq!(Terrain::CrystalDoor.flags(), F::SOLID);
+    }
+
+    #[test]
+    fn discover_reveals_secrets() {
+        assert_eq!(Terrain::SecretDoor.discover(), Terrain::Door);
+        assert_eq!(Terrain::SecretTrap.discover(), Terrain::Trap);
+        assert_eq!(Terrain::Grass.discover(), Terrain::Grass);
     }
 }

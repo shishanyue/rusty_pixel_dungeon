@@ -1,10 +1,29 @@
+//! 关卡数据核心。生成流水线（房间/构建器/画师）见 `docs/plans/10-level-generation.md`。
+//!
+//! 坐标约定：`IVec2` 格子坐标，原点左上；矩形用 `bevy::math::IRect`（`max` 开区间）；
+//! 线性索引 = `y * width + x`。
 
-use bevy::prelude::*;
+use bevy::{math::IRect, prelude::*};
+
+use crate::levels::terrain::{Terrain, TerrainFlags};
+
+pub mod builder;
+pub mod generator;
+pub mod painter;
+pub mod patch;
+pub mod random;
+pub mod rect;
+pub mod rooms;
+pub mod special;
+pub mod standard;
 pub mod terrain;
 
-/// 地牢感觉/氛围类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub use generator::generate_level;
+
+/// 地牢层的氛围变体，对照 SPD `Level.Feeling`
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Feeling {
+    #[default]
     None,
     Chasm,
     Water,
@@ -15,199 +34,233 @@ pub enum Feeling {
     Secrets,
 }
 
-/// 地牢等级资源
-#[derive(Resource, Debug)]
+/// 一层地牢的地图数据。生成完成后作为 Resource 插入。
+#[derive(Debug, Resource)]
 pub struct Level {
-    /// 地图数据
-    pub map: Vec<Terrain>,
+    map: Vec<Terrain>,
+    width: usize,
+    height: usize,
 
-    /// 地图尺寸
-    pub width: usize,
-    pub height: usize,
-
-    /// 当前深度
     pub depth: i32,
-
-    /// 地牢感觉
     pub feeling: Feeling,
-
-    /// 入口位置
     pub entrance: IVec2,
-
-    /// 出口位置
     pub exit: IVec2,
 
-    /// 房间实体列表
-    pub rooms: Vec<Entity>,
-
-    /// 陷阱位置
-    pub traps: Vec<IVec2>,
-
-    /// 地形标志缓存
+    // 地形标志缓存，随 set_terrain 增量维护（对照 SPD buildFlagMaps）
     pub passable: Vec<bool>,
     pub los_blocking: Vec<bool>,
     pub solid: Vec<bool>,
 }
 
 impl Level {
-    /// 创建新的地牢等级
+    /// 新建一层，全图填充墙（SPD 生成同样从全墙开始挖）。
     pub fn new(width: usize, height: usize, depth: i32) -> Self {
+        assert!(width > 0 && height > 0, "关卡尺寸必须为正");
         let size = width * height;
+        let wall_flags = Terrain::Wall.flags();
         Self {
-            map: vec![Terrain::WALL; size],
+            map: vec![Terrain::Wall; size],
             width,
             height,
             depth,
             feeling: Feeling::None,
             entrance: IVec2::ZERO,
             exit: IVec2::ZERO,
-            rooms: Vec::new(),
-            traps: Vec::new(),
-            passable: vec![false; size],
-            los_blocking: vec![true; size],
-            solid: vec![true; size],
+            passable: vec![wall_flags.contains(TerrainFlags::PASSABLE); size],
+            los_blocking: vec![wall_flags.contains(TerrainFlags::LOS_BLOCKING); size],
+            solid: vec![wall_flags.contains(TerrainFlags::SOLID); size],
         }
     }
 
-    /// 获取指定坐标的地形
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    pub fn size(&self) -> usize {
+        self.width * self.height
+    }
+
+    pub fn map(&self) -> &[Terrain] {
+        &self.map
+    }
+
+    pub fn is_inside(&self, pos: IVec2) -> bool {
+        pos.x >= 0 && pos.y >= 0 && (pos.x as usize) < self.width && (pos.y as usize) < self.height
+    }
+
+    /// 读地形；越界一律视为墙（与 SPD 边界语义一致）。
     pub fn terrain(&self, pos: IVec2) -> Terrain {
-        if self.is_valid(pos) {
-            self.map[pos_to_index(pos, self.width)]
+        if self.is_inside(pos) {
+            self.map[self.index(pos)]
         } else {
-            Terrain::WALL
+            Terrain::Wall
         }
     }
 
-    /// 设置指定坐标的地形
+    /// 写地形并同步标志缓存；越界写入静默忽略。
     pub fn set_terrain(&mut self, pos: IVec2, terrain: Terrain) {
-        if self.is_valid(pos) {
-            let index = pos_to_index(pos, self.width);
+        if self.is_inside(pos) {
+            let index = self.index(pos);
             self.map[index] = terrain;
-            self.update_flags(index, terrain);
+            let flags = terrain.flags();
+            self.passable[index] = flags.contains(TerrainFlags::PASSABLE);
+            self.los_blocking[index] = flags.contains(TerrainFlags::LOS_BLOCKING);
+            self.solid[index] = flags.contains(TerrainFlags::SOLID);
         }
     }
 
-    /// 填充矩形区域的地形
+    /// 填充矩形（`rect.max` 开区间，bevy `IRect` 约定）。
     pub fn fill(&mut self, rect: IRect, terrain: Terrain) {
-        for y in rect.min.y..=rect.max.y {
-            for x in rect.min.x..=rect.max.x {
+        for y in rect.min.y..rect.max.y {
+            for x in rect.min.x..rect.max.x {
                 self.set_terrain(IVec2::new(x, y), terrain);
             }
         }
     }
 
-    /// 检查坐标是否有效
-    pub fn is_valid(&self, pos: IVec2) -> bool {
-        pos.x >= 0 && pos.x < self.width as i32 
-            && pos.y >= 0 && pos.y < self.height as i32
+    pub fn index(&self, pos: IVec2) -> usize {
+        pos.y as usize * self.width + pos.x as usize
     }
 
-    /// 更新地形标志
-    fn update_flags(&mut self, index: usize, terrain: Terrain) {
-        let flags = terrain.flags();
-        self.passable[index] = flags.contains(TerrainFlags::PASSABLE);
-        self.los_blocking[index] = flags.contains(TerrainFlags::LOS_BLOCKING);
-        self.solid[index] = flags.contains(TerrainFlags::SOLID);
+    pub fn pos_of(&self, index: usize) -> IVec2 {
+        IVec2::new((index % self.width) as i32, (index / self.width) as i32)
     }
 
-    /// 重置地牢
-    pub fn reset(&mut self, width: usize, height: usize, depth: i32) {
-        let size = width * height;
-        self.map = vec![Terrain::WALL; size];
-        self.width = width;
-        self.height = height;
-        self.depth = depth;
-        self.feeling = Feeling::None;
-        self.entrance = IVec2::ZERO;
-        self.exit = IVec2::ZERO;
-        self.rooms.clear();
-        self.traps.clear();
-        self.passable = vec![false; size];
-        self.los_blocking = vec![true; size];
-        self.solid = vec![true; size];
+    /// 调试字符画：`#` 墙、`.` 地板、`+` 门、`L` 锁门、`S` 密门（调试图有意
+    /// 暴露，游戏内视觉是墙）、`E` 入口、`X` 出口、`~` 水、`"` 矮草、`!` 高草、
+    /// `^` 明陷阱、`,` 暗陷阱（同为有意暴露）、`&` 雕像/区域装饰（实体）。
+    /// 其余地形按类别归并（深渊留空等），行序自上而下。
+    pub fn debug_ascii(&self) -> String {
+        let mut out = String::with_capacity((self.width + 1) * self.height);
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let terrain = self.map[y * self.width + x];
+                out.push(match terrain {
+                    Terrain::Wall | Terrain::WallDeco => '#',
+                    Terrain::Door | Terrain::OpenDoor => '+',
+                    // 三期符号：锁门 L（含骷髅锁）、密门 S；水晶门并入 L
+                    Terrain::LockedDoor | Terrain::HeroLockedDoor | Terrain::CrystalDoor => 'L',
+                    Terrain::SecretDoor => 'S',
+                    Terrain::Entrance | Terrain::EntranceSp => 'E',
+                    Terrain::Exit | Terrain::LockedExit | Terrain::UnlockedExit => 'X',
+                    Terrain::Water => '~',
+                    Terrain::Grass | Terrain::FurrowedGrass => '"',
+                    Terrain::HighGrass => '!',
+                    Terrain::Trap => '^',
+                    // 游戏内视觉是普通地板；调试图用 `,` 有意暴露以便核对落位
+                    Terrain::SecretTrap => ',',
+                    Terrain::Chasm => ' ',
+                    Terrain::Barricade | Terrain::Bookshelf => 'B',
+                    Terrain::Statue | Terrain::StatueSp | Terrain::RegionDeco | Terrain::RegionDecoAlt => {
+                        '&'
+                    }
+                    t if t.is_passable() => '.',
+                    _ => '?',
+                });
+            }
+            out.push('\n');
+        }
+        out
     }
 }
 
-/// 将坐标转换为索引
-pub fn pos_to_index(pos: IVec2, width: usize) -> usize {
-    (pos.y as usize * width) + pos.x as usize
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// 将索引转换为坐标
-pub fn index_to_pos(index: usize, width: usize) -> IVec2 {
-    IVec2::new(
-        (index % width) as i32,
-        (index / width) as i32,
-    )
-}
+    #[test]
+    fn new_level_is_all_wall() {
+        let level = Level::new(4, 3, 1);
+        assert_eq!(level.size(), 12);
+        assert!(level.map().iter().all(|&t| t == Terrain::Wall));
+        assert!(level.solid.iter().all(|&s| s));
+        assert!(!level.passable.iter().any(|&p| p));
+    }
 
-/// 矩形区域
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct IRect {
-    pub min: IVec2,
-    pub max: IVec2,
-}
+    #[test]
+    fn fill_respects_open_max_and_bounds() {
+        let mut level = Level::new(5, 5, 1);
+        // max 开区间：填 (1,1)-(4,4) 实际覆盖 x,y ∈ [1,3]
+        level.fill(IRect::new(1, 1, 4, 4), Terrain::Empty);
+        assert_eq!(level.terrain(IVec2::new(1, 1)), Terrain::Empty);
+        assert_eq!(level.terrain(IVec2::new(3, 3)), Terrain::Empty);
+        assert_eq!(level.terrain(IVec2::new(4, 4)), Terrain::Wall);
+        // 越界填充不 panic、不写入
+        level.fill(IRect::new(3, 3, 100, 100), Terrain::Water);
+        assert_eq!(level.terrain(IVec2::new(4, 4)), Terrain::Water);
+        assert_eq!(level.terrain(IVec2::new(100, 100)), Terrain::Wall);
+    }
 
-impl IRect {
-    pub fn new(x1: i32, y1: i32, x2: i32, y2: i32) -> Self {
-        Self {
-            min: IVec2::new(x1.min(x2), y1.min(y2)),
-            max: IVec2::new(x1.max(x2), y1.max(y2)),
+    #[test]
+    fn flag_caches_follow_terrain() {
+        let mut level = Level::new(3, 3, 1);
+        let pos = IVec2::new(1, 1);
+        level.set_terrain(pos, Terrain::Water);
+        let idx = level.index(pos);
+        assert!(level.passable[idx]);
+        assert!(!level.solid[idx]);
+        level.set_terrain(pos, Terrain::HighGrass);
+        assert!(level.passable[idx]);
+        assert!(level.los_blocking[idx]);
+    }
+
+    #[test]
+    fn index_roundtrip() {
+        let level = Level::new(7, 4, 1);
+        for i in 0..level.size() {
+            assert_eq!(level.index(level.pos_of(i)), i);
         }
     }
 
-    pub fn from_center(center: IVec2, width: i32, height: i32) -> Self {
-        let half_w = width / 2;
-        let half_h = height / 2;
-        Self {
-            min: IVec2::new(center.x - half_w, center.y - half_h),
-            max: IVec2::new(center.x + half_w, center.y + half_h),
+    #[test]
+    fn out_of_bounds_reads_as_wall() {
+        let level = Level::new(3, 3, 1);
+        assert_eq!(level.terrain(IVec2::new(-1, 0)), Terrain::Wall);
+        assert_eq!(level.terrain(IVec2::new(3, 0)), Terrain::Wall);
+    }
+
+    /// 二期符号集：水 `~`、矮草 `"`、高草 `!`、明陷阱 `^`、暗陷阱 `,`。
+    #[test]
+    fn debug_ascii_maps_phase2_terrains() {
+        let mut level = Level::new(6, 1, 1);
+        for (x, t) in [
+            Terrain::Water,
+            Terrain::Grass,
+            Terrain::HighGrass,
+            Terrain::Trap,
+            Terrain::SecretTrap,
+            Terrain::FurrowedGrass,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            level.set_terrain(IVec2::new(x as i32, 0), t);
         }
+        assert_eq!(level.debug_ascii(), "~\"!^,\"\n");
     }
 
-    pub fn width(&self) -> i32 {
-        self.max.x - self.min.x + 1
-    }
-
-    pub fn height(&self) -> i32 {
-        self.max.y - self.min.y + 1
-    }
-
-    pub fn center(&self) -> IVec2 {
-        IVec2::new(
-            (self.min.x + self.max.x) / 2,
-            (self.min.y + self.max.y) / 2,
-        )
-    }
-
-    pub fn intersects(&self, other: &Self) -> bool {
-        self.min.x <= other.max.x && self.max.x >= other.min.x
-            && self.min.y <= other.max.y && self.max.y >= other.min.y
-    }
-
-    pub fn intersection(&self, other: &Self) -> Option<Self> {
-        if !self.intersects(other) {
-            return None;
+    /// 三期符号集：锁门 `L`、密门 `S`、区域装饰 `&`、余烬/失效陷阱归地板。
+    #[test]
+    fn debug_ascii_maps_phase3_terrains() {
+        let mut level = Level::new(7, 1, 1);
+        for (x, t) in [
+            Terrain::LockedDoor,
+            Terrain::SecretDoor,
+            Terrain::CrystalDoor,
+            Terrain::RegionDecoAlt,
+            Terrain::Embers,
+            Terrain::InactiveTrap,
+            Terrain::EmptySp,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            level.set_terrain(IVec2::new(x as i32, 0), t);
         }
-
-        Some(Self {
-            min: IVec2::new(
-                self.min.x.max(other.min.x),
-                self.min.y.max(other.min.y),
-            ),
-            max: IVec2::new(
-                self.max.x.min(other.max.x),
-                self.max.y.min(other.max.y),
-            ),
-        })
-    }
-}
-
-/// 地牢生成插件
-pub struct LevelPlugin;
-
-impl Plugin for LevelPlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<Level>();
+        assert_eq!(level.debug_ascii(), "LSL&...\n");
     }
 }
